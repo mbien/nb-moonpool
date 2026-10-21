@@ -1,0 +1,101 @@
+#
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+# 
+#   http://www.apache.org/licenses/LICENSE-2.0
+# 
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+#
+# Agent container image: the minimal hardened
+# image. No build toolchain is baked in: the gate bind-mounts the host
+# toolchain roots read-only at their host paths (AcpGate's --exec-root
+# mounts), and the in-container launcher derives JAVA_HOME and PATH
+# from the roots, so the agent can run real Maven builds from inside
+# against the mounted workspace and its local .m2.
+#
+# The only Java baked in is the launcher runtime under /app/runtime
+# (the jlinked app runtime build-image.sh assembles). The base and its
+# package list are ARGs: the file stays a valid standalone Containerfile,
+# and both are overridable via podman build --build-arg (or the Maven
+# properties nbmp.image.base / nbmp.image.packages, which
+# build-image.sh passes through). The base ARG defaults to Debian
+# trixie slim; without the package build-arg the install line below
+# falls back to the bare floor (the Maven build always passes its
+# property's full list). apt family only: the install line is apt
+# syntax.
+ARG NBMP_IMAGE_BASE=docker.io/library/debian:trixie-slim
+FROM ${NBMP_IMAGE_BASE}
+
+# Package floor for builds without the build-arg (the Maven build
+# always passes its property's full list):
+# ca-certificates: the agent's HTTPS to the model API (opencode uses
+# the system trust store; slim ships none). bash, awk and hostname
+# are already in the base.
+# git: the agent's shell runs git inside the domain; the launcher
+# auto-resolves it from PATH (read/exec grant), pins GIT_CONFIG_GLOBAL
+# at the copy of the user's config in the sandbox's private $HOME, and
+# grants /dev for its /dev/null. The image's git and the host's git
+# are two versions on one repo; git's formats are conservative across
+# the (bounded, shrinking) gap.
+# A multi-word ARG default is misparsed (each extra word is registered
+# as its own build arg), so the floor is the shell's :- default in the
+# install line:
+ARG NBMP_PACKAGES=
+# noninteractive: the build has no TTY, so unset the debconf frontends
+# fall back in sequence and print their noise for every installing
+# package.
+RUN export DEBIAN_FRONTEND=noninteractive \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ${NBMP_PACKAGES:-ca-certificates git} \
+    && rm -rf /var/lib/apt/lists/*
+
+# Launcher runtime: the jlinked runtime (app module; the runtime
+# classpath is empty, so no deps).
+COPY runtime/ /app/runtime/
+# Stage A probe: a pure-bash script that runs as the in-container
+# harness under the launcher's domain (see test/offline.sh).
+COPY --chmod=0755 probe.sh /app/probe.sh
+# The agent binary (opencode) is not part of the image: AcpGate binds
+# the host's binary read-only at /usr/local/bin/opencode (on PATH for
+# the launcher), so the container runs the host's version and an upgrade
+# is a host-side operation without an image rebuild (the pin lived in
+# build-image.sh).
+
+# The agent's home must live inside the Landlock domain: /root is never
+# a root, so the harness's $HOME state dirs (opencode's
+# $HOME/.local/share/opencode, ...) would be EACCES. /tmp is a FULL_FS
+# root and is private per container. Override with -e HOME when needed.
+ENV HOME=/tmp/agent-home
+# The agent's own XDG config/state dirs (models, auth, sessions) are not
+# under this home: AcpGate bind-mounts the host's dirs at their same path
+# and points XDG_CONFIG_HOME / XDG_DATA_HOME / XDG_STATE_HOME at the host
+# bases -- the launcher's domain picks the dirs up through agentStateDirs
+# (which resolves the same vars).
+
+# No WORKDIR: the workspace is bind-mounted at its host path (AcpGate) and
+# the launcher sets the harness's working directory itself (--workspace
+# <host path>). The host path must stay the in-container path: opencode
+# keys its projects and sessions by the worktree path, so the container
+# must see the workspace where the host sessions were created.
+
+# The entrypoint is SandboxLauncher: it installs the Landlock domain
+# (double defense on top of the mount namespace), spawns the harness
+# given on the command line, and relays its exit code.
+# The JVM flags mirror JvmFlags.RUNTIME_FLAGS_MODULAR -- change them
+# there first. (The --add-modules flag is a no-op here: the incubator
+# module is in the linked runtime's default graph.)
+ENTRYPOINT ["/app/runtime/bin/java", \
+            "--enable-native-access=dev.mbien.nbmp.mcp", \
+            "--add-modules", "jdk.incubator.json", \
+            "-m", "dev.mbien.nbmp.mcp/dev.mbien.nbmp.mcp.SandboxLauncher"]

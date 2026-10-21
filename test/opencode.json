@@ -1,0 +1,13 @@
+{
+    "agent": {
+        "nbmp-test": {
+            "description": "smoke-test agent: runs the script's fixed commands and changes nothing",
+            "mode": "primary",
+            "permission": {
+                "bash": "allow",
+                "edit": "deny",
+                "task": "deny"
+            }
+        }
+    }
+}

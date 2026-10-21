@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements.  See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership.  The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License.  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied.  See the License for the
+    specific language governing permissions and limitations
+    under the License.
+
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>dev.mbien</groupId>
+    <artifactId>nbmp</artifactId>
+    <version>0.1-SNAPSHOT</version>
+    <packaging>jar</packaging>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <maven.compiler.release>28</maven.compiler.release>
+        <!-- Agent image base and package list: passed to podman build as
+             build-args via container/build-image.sh, overriding the
+             Containerfile's package floor (apt family only). -->
+        <nbmp.image.base>docker.io/library/debian:trixie-slim</nbmp.image.base>
+        <nbmp.image.packages>ca-certificates curl git jq procps ripgrep unzip zip</nbmp.image.packages>
+
+        <!-- Lathe is disabled at the config level: .mvn/maven.config
+             passes -Dlathe.disabled=true, which is absolute — the
+             property form is ignored wherever a .lathe/ directory
+             exists (documented developer opt-in). Sandbox builds opt
+             in with -Dlathe.disabled=false. -->
+        <!--
+             <lathe.disabled>true</lathe.disabled>
+        -->
+    </properties>
+
+    <build>
+
+        <extensions>
+            <extension>
+                <groupId>io.github.ag-libs</groupId>
+                <artifactId>lathe-maven-extension</artifactId>
+                <version>0.2.2</version>
+            </extension>
+        </extensions>
+
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.16.0</version>
+                <configuration>
+                    <compilerArgs>
+                        <arg>-Xlint</arg>
+                        <arg>--add-modules</arg>
+                        <arg>jdk.incubator.json</arg>
+                    </compilerArgs>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.6.0</version>
+                <configuration>
+                    <argLine>--enable-native-access=ALL-UNNAMED --add-modules jdk.incubator.json</argLine>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>5.14.4</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <profiles>
+        <!-- Runs the full build + tests as a gate, then container/build-image.sh:
+             Image customization: -Dnbmp.image.base=... -Dnbmp.image.packages=... -->
+        <profile>
+            <id>container</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-dependency-plugin</artifactId>
+                        <version>3.11.0</version>
+                        <executions>
+                            <execution>
+                                <id>image-classpath</id>
+                                <phase>process-classes</phase>
+                                <goals>
+                                    <goal>build-classpath</goal>
+                                </goals>
+                                <configuration>
+                                    <includeScope>runtime</includeScope>
+                                    <outputFile>${project.build.directory}/image-cp.txt</outputFile>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>exec-maven-plugin</artifactId>
+                        <version>3.6.4</version>
+                        <executions>
+                            <execution>
+                                <id>build-image</id>
+                                <phase>verify</phase>
+                                <goals>
+                                    <goal>exec</goal>
+                                </goals>
+                                <configuration>
+                                    <executable>bash</executable>
+                                    <arguments>
+                                        <argument>${project.basedir}/container/build-image.sh</argument>
+                                    </arguments>
+                                    <!-- The daemon runs with a sanitized PATH:
+                                         pass what Maven already knows, so the
+                                         script needs no mvnd/JDK presets. -->
+                                    <environmentVariables>
+                                        <JDK>${java.home}</JDK>
+                                        <NBMP_CP_FILE>${project.build.directory}/image-cp.txt</NBMP_CP_FILE>
+                                        <NBMP_IMAGE_BASE>${nbmp.image.base}</NBMP_IMAGE_BASE>
+                                        <NBMP_PACKAGES>${nbmp.image.packages}</NBMP_PACKAGES>
+                                    </environmentVariables>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+
+</project>

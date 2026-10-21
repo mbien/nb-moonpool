@@ -1,0 +1,11 @@
+/.m2/
+/.nbmp/
+/.lathe/
+
+/target/
+/runtime/
+/lib/
+/docs/
+/tasks/
+
+/nb-configuration.xml

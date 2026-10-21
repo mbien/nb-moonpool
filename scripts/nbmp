@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+#
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+# 
+#   http://www.apache.org/licenses/LICENSE-2.0
+# 
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+#
+# nbmp — the entry point. One command, two forms:
+#
+#   a terminal on stdin  ->  TUI: interactive opencode in the agent
+#                            container, the terminal passed straight
+#                            through (no gate, no relay)
+#   no terminal (the IDE plugin)  ->  ACP gate: the same container
+#                            command, with the ACP stream relayed and
+#                            intercepted
+#
+# Options (both forms):
+#   --workspace <dir>    the workspace (default: the current directory)
+#   --agent <binary>     the agent binary (opencode or goose; default:
+#                        opencode; an absolute path, NBMP_CTR_OPENCODE
+#                        / NBMP_CTR_GOOSE, or PATH)
+#   --image <name>       the agent image (default: localhost/nbmp-agent)
+#   --runtime <command>  the container runtime (default: podman)
+#   --exec-root <dir>    a read-only toolchain root (repeatable)
+#   --acp                force the ACP form in a terminal
+# Env: NBMP_EXEC_ROOTS (colon-separated exec roots),
+#      NBMP_CTR_OPENCODE / NBMP_CTR_GOOSE (the agent binary,
+#      non-PATH installs).
+#
+# The runtime (a jlinked JVM with the nbmp module) is expected under
+# $NBMP_HOME (default: the nbmp checkout containing this script),
+# i.e. $NBMP_HOME/runtime/bin/java. Refresh it after an image build:
+#   rm -rf runtime && cp -r target/runtime runtime
+# The JVM flags mirror JvmFlags.RUNTIME_FLAGS_MODULAR.
+: "${NBMP_HOME:=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)}"
+: "${NBMP_EXEC_ROOTS:=}"
+JAVACMD=("$NBMP_HOME/runtime/bin/java"
+    --enable-native-access=dev.mbien.nbmp.mcp
+    --add-modules jdk.incubator.json)
+MODULE=dev.mbien.nbmp.mcp
+
+exec_root_args=()
+IFS=':' read -ra exec_roots <<< "$NBMP_EXEC_ROOTS"
+for root in "${exec_roots[@]}"; do
+    [ -n "$root" ] && exec_root_args+=(--exec-root "$root")
+done
+
+args=()
+force_acp=0
+for arg in "$@"; do
+    if [ "$arg" = "--acp" ]; then
+        force_acp=1
+    else
+        args+=("$arg")
+    fi
+done
+
+if [ -t 0 ] && [ "$force_acp" -eq 0 ]; then
+    # TUI form: the JVM prints the container command (NUL-separated)
+    # and the wrapper execs it, so podman is a direct child of the
+    # terminal (its size and resizes reach the container); the JVM
+    # never sits in the terminal's data path.
+    mapfile -d '' cmd < <("${JAVACMD[@]}" \
+        -m "$MODULE/dev.mbien.nbmp.mcp.TuiCommand" \
+        "${exec_root_args[@]}" "${args[@]}")
+    [ ${#cmd[@]} -gt 0 ] || {
+        echo "nbmp: no container command (the runtime is missing or failed; see above)" >&2
+        exit 1
+    }
+    exec "${cmd[@]}"
+else
+    exec "${JAVACMD[@]}" -m "$MODULE/dev.mbien.nbmp.mcp.AcpGate" \
+        "${exec_root_args[@]}" "${args[@]}"
+fi
