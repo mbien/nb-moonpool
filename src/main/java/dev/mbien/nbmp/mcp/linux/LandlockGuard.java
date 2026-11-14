@@ -175,7 +175,7 @@ public final class LandlockGuard {
 
     /// The agent's own state dirs: the harness profile's XDG
     /// config/data/state dirs ({@link HarnessProfile#stateDirs}) plus
-    /// the cache dir, namespaced by the profile's state subpath.
+    /// the cache dir, namespaced by the profile's state subpaths.
     ///
     /// In the agent container these resolve inside the domain
     /// ({@code HOME=/tmp/agent-home}); on the host they are the user's
@@ -193,7 +193,9 @@ public final class LandlockGuard {
                     .map(HarnessProfile.StateDir::dir)
                     .toList()
         );
-        addXdgDir(dirs, "XDG_CACHE_HOME", home, Path.of(".cache"), profile.stateSubpath());
+        for (Path subpath : profile.stateSubpaths()) {
+            addXdgDir(dirs, "XDG_CACHE_HOME", home, Path.of(".cache"), subpath);
+        }
         return dirs;
     }
 

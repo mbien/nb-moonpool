@@ -376,6 +376,27 @@ class AcpGateTest {
                 "-e", "XDG_DATA_HOME=" + home.resolve(".local", "share")), command);
     }
 
+    /// Several state dirs under one XDG base (opencode and opentui)
+    /// share the base-var override; it is added once.
+    @Test
+    void stateDirMountsAddTheBaseVarOverrideOnce(@TempDir Path home) throws IOException {
+        Path dataDir = home.resolve(".local", "share", "opencode");
+        Path tuiDir = home.resolve(".local", "share", "opentui");
+        Files.createDirectories(dataDir);
+        Files.createDirectories(tuiDir);
+        List<String> command = new ArrayList<>();
+
+        AcpGate.stateDirMounts(command, List.of(
+                new HarnessProfile.StateDir("XDG_DATA_HOME", home.resolve(".local", "share"), dataDir, false),
+                new HarnessProfile.StateDir("XDG_DATA_HOME", home.resolve(".local", "share"), tuiDir, false))
+        );
+
+        assertEquals(List.of(
+                "-v", dataDir + ":" + dataDir,
+                "-e", "XDG_DATA_HOME=" + home.resolve(".local", "share"),
+                "-v", tuiDir + ":" + tuiDir), command);
+    }
+
     /// A missing state dir adds neither the mount nor the env var.
     @Test
     void stateDirMountsSkipAMissingDir(@TempDir Path home) {

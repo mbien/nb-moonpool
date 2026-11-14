@@ -45,15 +45,16 @@ class HarnessProfileTest {
         assertTrue(HarnessProfile.GOOSE.projectConfig().isEmpty());
         assertEquals("GOOSE_PATH_ROOT", HarnessProfile.GOOSE.stateRootEnv());
         HarnessProfile generic = HarnessProfile.of("custom-agent");
-        assertEquals(Path.of("custom-agent"), generic.stateSubpath());
+        assertEquals(List.of(Path.of("custom-agent")), generic.stateSubpaths());
         assertNull(generic.binaryEnv());
         assertTrue(generic.projectConfig().isEmpty());
         assertNull(generic.stateRootEnv());
     }
 
     /// The classic layout: each base var (or its $HOME fallback) plus
-    /// the single-name subpath; the config dir is read-only, data and
-    /// state read-write.
+    /// each state subpath; the config dir is read-only, data and state
+    /// read-write. opencode carries the agent's own dirs plus the TUI
+    /// framework's {@code opentui} dirs.
     @Test
     void opencodeStateDirsUseTheClassicBases(@TempDir Path home) {
         List<HarnessProfile.StateDir> dirs =
@@ -67,7 +68,15 @@ class HarnessProfileTest {
                         home.resolve(".local", "share", "opencode"), false),
                 new HarnessProfile.StateDir("XDG_STATE_HOME",
                         home.resolve(".local", "state"),
-                        home.resolve(".local", "state", "opencode"), false)), dirs);
+                        home.resolve(".local", "state", "opencode"), false),
+                new HarnessProfile.StateDir("XDG_CONFIG_HOME",
+                        home.resolve(".config"), home.resolve(".config", "opentui"), true),
+                new HarnessProfile.StateDir("XDG_DATA_HOME",
+                        home.resolve(".local", "share"),
+                        home.resolve(".local", "share", "opentui"), false),
+                new HarnessProfile.StateDir("XDG_STATE_HOME",
+                        home.resolve(".local", "state"),
+                        home.resolve(".local", "state", "opentui"), false)), dirs);
     }
 
     /// The base vars point the bases at custom locations (the host's

@@ -217,9 +217,11 @@ class LandlockGuardTest {
 
         List<Path> dirs = LandlockGuard.agentStateDirs("opencode");
 
-        assertEquals(4, dirs.size());
+        assertEquals(8, dirs.size());
         for (Path dir : dirs) {
-            assertEquals("opencode", dir.getFileName().toString());
+            String name = dir.getFileName().toString();
+            assertTrue(name.equals("opencode") || name.equals("opentui"),
+                    "state dirs are namespaced by a profile subpath: " + dir);
         }
     }
 

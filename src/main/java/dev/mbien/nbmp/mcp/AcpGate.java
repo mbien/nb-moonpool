@@ -40,8 +40,10 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Set;
 
 /// ACP control plane: the executable the IDE plugin starts in place
 /// of the agent binary. It spawns the real agent at t=0 in the sandbox
@@ -536,15 +538,22 @@ public class AcpGate {
     /// The same-path bind mounts (source == target) plus the base-var
     /// overrides that point the in-container resolution at the host
     /// bases.
+    ///
+    /// Several state dirs share a base var (opencode and
+    /// opentui both live under the XDG bases); the override is added
+    /// once per var.
     static void stateDirMounts(List<String> command, List<HarnessProfile.StateDir> stateDirs) {
+        Set<String> envVars = new HashSet<>();
         for (HarnessProfile.StateDir dir : stateDirs) {
             if (!Files.isDirectory(dir.dir())) {
                 continue;
             }
             command.add("-v");
             command.add(dir.dir() + ":" + dir.dir() + (dir.readOnly() ? ":ro" : ""));
-            command.add("-e");
-            command.add(dir.envVar() + "=" + dir.base());
+            if (envVars.add(dir.envVar())) {
+                command.add("-e");
+                command.add(dir.envVar() + "=" + dir.base());
+            }
         }
     }
 
